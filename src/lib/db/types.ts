@@ -27,6 +27,8 @@ export interface Subtask {
 export interface TimerSession {
   id: string;
   taskId: string;
+  subtaskId?: string;
+  subtaskTitle?: string;
   startedAt: string;
   endedAt?: string;
   pausedDurations: number[];
@@ -48,6 +50,7 @@ export interface CompletionRecord {
   nominalMinutes: number;
   actualMinutes: number;
   ratio: number;
+  splits: { subtaskId?: string; title: string; minutes: number }[];
 }
 
 export interface UserSettings {

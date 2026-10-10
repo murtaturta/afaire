@@ -23,7 +23,11 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<vo
   await db.tasks.update(id, { ...updates, updatedAt: now });
 }
 
+import { useTimerStore } from '@/stores/timerStore';
+
 export async function deleteTask(id: string): Promise<void> {
+  // discard running timer if any
+  useTimerStore.getState().discardTimer(id);
   await db.tasks.delete(id);
 }
 

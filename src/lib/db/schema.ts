@@ -15,6 +15,9 @@ export class TempoDoDatabase extends Dexie {
       completionRecords: 'id, taskId, templateId, date',
       settings: 'id'
     });
+    this.version(2).stores({
+      timerSessions: 'id, taskId, subtaskId',
+    });
   }
 }
 

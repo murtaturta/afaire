@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { GlobalTimer } from "@/components/timer/GlobalTimer";
+import { TimerTicker } from "@/components/timer/TimerTicker";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -18,7 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex">
         <Sidebar />
         <main className="flex-1 overflow-y-auto">{children}</main>
-        <GlobalTimer />
+        <TimerTicker />
+        {/* <TimerDrawer /> UI agent will mount it here */}
       </body>
     </html>
   );

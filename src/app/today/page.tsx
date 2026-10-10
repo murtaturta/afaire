@@ -1,38 +1,26 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { format } from "date-fns";
 import { Plus } from "lucide-react";
 import { TaskList } from '@/components/tasks/TaskList';
 import { TaskForm, TaskFormData } from '@/components/tasks/TaskForm';
-import { TaskHistoryModal } from '@/components/tasks/TaskHistoryModal';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Task } from '@/lib/db/types';
-import { getTasksByDate, createTask, updateTask, deleteTask } from '@/lib/db/tasks';
+import { createTask, updateTask, deleteTask } from '@/lib/db/tasks';
 import { useTimerStore } from '@/stores/timerStore';
+import { useTasksForDate } from '@/hooks/useData';
 
 export default function TodayPage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [taskToEdit, setTaskToEdit] = useState<Task | undefined>(undefined);
-  
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [taskToViewHistory, setTaskToViewHistory] = useState<Task | undefined>(undefined);
-  
   const todayDate = format(new Date(), "yyyy-MM-dd");
   const displayDate = format(new Date(), "EEEE, MMMM d, yyyy");
   
+  const tasks = useTasksForDate(todayDate) || [];
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskToEdit, setTaskToEdit] = useState<Task | undefined>(undefined);
+  
   const startTimer = useTimerStore(state => state.startTimer);
-
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  const loadTasks = async () => {
-    const todayTasks = await getTasksByDate(todayDate);
-    setTasks(todayTasks);
-  };
 
   const handleOpenNewTask = () => {
     setTaskToEdit(undefined);
@@ -53,15 +41,13 @@ export default function TodayPage() {
     if (taskToEdit) {
       await updateTask(taskToEdit.id, data);
     } else {
-      await createTask({ ...data, subtasks: [], status: 'pending' });
+      await createTask({ ...data, subtasks: [], status: 'pending', scheduledDate: todayDate });
     }
-    await loadTasks();
     handleCloseModal();
   };
 
   const handleDeleteTask = async (taskId: string) => {
     await deleteTask(taskId);
-    await loadTasks();
   };
 
   const handleStatusChange = async (taskId: string, status: Task['status']) => {
@@ -69,16 +55,10 @@ export default function TodayPage() {
       status, 
       completedAt: status === 'completed' ? new Date().toISOString() : undefined 
     });
-    await loadTasks();
   };
 
   const handleStartTimer = (task: Task) => {
     startTimer(task);
-  };
-
-  const handleViewHistory = (task: Task) => {
-    setTaskToViewHistory(task);
-    setIsHistoryModalOpen(true);
   };
 
   return (
@@ -101,7 +81,7 @@ export default function TodayPage() {
           onDelete={handleDeleteTask}
           onStatusChange={handleStatusChange}
           onStartTimer={handleStartTimer}
-          onViewHistory={handleViewHistory}
+          onViewHistory={() => {}}
         />
       </div>
 
@@ -116,15 +96,6 @@ export default function TodayPage() {
           onCancel={handleCloseModal} 
         />
       </Modal>
-
-      {taskToViewHistory && (
-        <TaskHistoryModal
-          isOpen={isHistoryModalOpen}
-          onClose={() => setIsHistoryModalOpen(false)}
-          taskId={taskToViewHistory.id}
-          taskTitle={taskToViewHistory.title}
-        />
-      )}
     </div>
   );
 }

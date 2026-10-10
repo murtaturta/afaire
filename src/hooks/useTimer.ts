@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect } from 'react';
 import { useTimerStore } from '@/stores/timerStore';
-import { formatDuration } from '@/lib/utils/duration';
+
+export function formatElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const mm = minutes.toString().padStart(2, '0');
+  const ss = seconds.toString().padStart(2, '0');
+
+  if (hours > 0) {
+    const hh = hours.toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+  return `${mm}:${ss}`;
+}
 
 export function useTimer() {
-  const store = useTimerStore();
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      store.tick();
-    }, 100);
-    
-    return () => clearInterval(intervalId);
-  }, [store.tick]);
-
-  return store;
+  return useTimerStore();
 }
 
 export function useTimerInstance(taskId: string) {
@@ -23,6 +27,6 @@ export function useTimerInstance(taskId: string) {
   const timer = store.timers[taskId];
   return {
     ...timer,
-    formattedTime: timer ? formatDuration(timer.elapsed) : "00:00"
+    formattedTime: timer ? formatElapsed(timer.elapsed) : "00:00"
   };
 }

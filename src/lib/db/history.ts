@@ -11,6 +11,10 @@ export async function addCompletionRecord(data: Omit<CompletionRecord, 'id'>): P
   return record;
 }
 
+export async function updateCompletionRecord(id: string, updates: Partial<CompletionRecord>): Promise<void> {
+  await db.completionRecords.update(id, updates);
+}
+
 export async function getHistoryByTemplate(templateId: string): Promise<CompletionRecord[]> {
   return db.completionRecords.where('templateId').equals(templateId).toArray();
 }
