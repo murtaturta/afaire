@@ -41,7 +41,7 @@ export default function TodayPage() {
     if (taskToEdit) {
       await updateTask(taskToEdit.id, data);
     } else {
-      await createTask({ ...data, subtasks: [], status: 'pending', scheduledDate: todayDate });
+      await createTask({ ...data, subtasks: [], status: 'pending', scheduledDate: data.scheduledDate || todayDate });
     }
     handleCloseModal();
   };

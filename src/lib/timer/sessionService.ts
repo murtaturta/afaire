@@ -115,6 +115,13 @@ export async function completeTask(taskId: string, nominalMinutes: number) {
   }
 
   const actualMinutes = totalActiveMs / 60000;
+
+  // A task completed without ever being timed has no real duration data.
+  // Writing a 0-minute record would teach the calibration engine the task takes no time.
+  if (allSessions.length === 0) {
+    return { session, record: null, isOutlier: false, actualMinutes: 0 };
+  }
+
   const isOutlier = actualMinutes > 2.5 * nominalMinutes;
 
   if (session && isOutlier) {
@@ -124,18 +131,35 @@ export async function completeTask(taskId: string, nominalMinutes: number) {
 
   const splits = computeTaskSplit(allSessions, subtasks);
 
-  // 4. completion record
-  const record = await addCompletionRecord({
+  // Local yyyy-MM-dd. Per the approved design, a session counts toward the task's scheduled day
+  // (e.g. a timer running past midnight), so prefer scheduledDate.
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const recordDate = task?.scheduledDate ?? localDate;
+  const [y, m, d] = recordDate.split('-').map(Number);
+
+  const recordData = {
     taskId,
-    sessionId: session ? session.id : 'no-session',
-    date: now.toISOString(),
-    dayOfWeek: now.getDay(),
+    templateId: task?.templateId,
+    sessionId: session ? session.id : allSessions[allSessions.length - 1].id,
+    date: recordDate,
+    dayOfWeek: new Date(y, m - 1, d).getDay(),
     timeOfDay: getTimeOfDay(now),
     nominalMinutes,
     actualMinutes,
     ratio: nominalMinutes > 0 ? actualMinutes / nominalMinutes : 1,
     splits,
-  });
+  };
+
+  // 4. completion record: one per task. If the task was un-completed and completed again,
+  // update the existing record instead of adding a duplicate (duplicates would double-weight it).
+  const existing = await getHistoryByTask(taskId);
+  let record: CompletionRecord;
+  if (existing.length > 0) {
+    await updateCompletionRecord(existing[0].id, recordData);
+    record = { ...existing[0], ...recordData };
+  } else {
+    record = await addCompletionRecord(recordData);
+  }
 
   return {
     session,
