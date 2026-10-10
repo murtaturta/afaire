@@ -18,7 +18,7 @@ export function Sidebar() {
     <aside className="w-60 h-full border-r border-border bg-card text-card-foreground flex flex-col">
       <div className="p-6 flex items-center gap-3 border-b border-border">
         <Timer className="w-6 h-6 text-primary" />
-        <span className="font-bold text-xl tracking-tight">TempoDo</span>
+        <span className="font-bold text-xl tracking-tight lowercase">afaire</span>
       </div>
       <nav className="flex-1 p-4 space-y-2">
         {navItems.map((item) => {

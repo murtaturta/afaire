@@ -11,8 +11,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TempoDo",
-  description: "Adaptive task manager that learns your pace",
+  title: "afaire — adaptive task manager",
+  description: "A task manager that adapts to your actual pace and work habits",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
