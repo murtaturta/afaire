@@ -10,9 +10,8 @@ interface TaskListProps {
   tasks: Task[];
   onEdit: (task: Task) => void;
   onDelete: (taskId: string) => void;
-  onStatusChange: (taskId: string, status: Task['status']) => void;
-  onStartTimer: (task: Task) => void;
-  onViewHistory?: (task: Task) => void;
+  onStatusChange?: (taskId: string, status: Task['status']) => void;
+  onStartTimer?: (task: Task) => void;
   emptyMessage?: string;
 }
 
@@ -22,7 +21,6 @@ export const TaskList: React.FC<TaskListProps> = ({
   onDelete,
   onStatusChange,
   onStartTimer,
-  onViewHistory = () => {},
   emptyMessage = "No tasks yet"
 }) => {
   if (tasks.length === 0) {
@@ -52,7 +50,6 @@ export const TaskList: React.FC<TaskListProps> = ({
             onDelete={onDelete}
             onStatusChange={onStatusChange}
             onStartTimer={onStartTimer}
-            onViewHistory={onViewHistory}
           />
         ))}
       </AnimatePresence>

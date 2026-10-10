@@ -52,9 +52,10 @@ export const SubtaskList: React.FC<SubtaskListProps> = ({
       {subtasks.map(st => (
         <div key={st.id} className="group flex items-center gap-2 p-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded-md transition-colors">
           <button
+            type="button"
             onClick={() => handleToggle(st.id)}
             disabled={readonly}
-            className={`shrink-0 w-4 h-4 rounded-sm border flex items-center justify-center transition-colors ${
+            className={`shrink-0 w-4 h-4 rounded-sm border flex items-center justify-center transition-colors cursor-pointer ${
               st.done 
                 ? 'bg-blue-500 border-blue-500 text-white' 
                 : 'border-zinc-300 dark:border-zinc-600 text-transparent hover:border-blue-400'
@@ -69,8 +70,9 @@ export const SubtaskList: React.FC<SubtaskListProps> = ({
           
           {!readonly && (
             <button
+              type="button"
               onClick={() => handleDelete(st.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-400 hover:text-red-500 rounded transition-all"
+              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-400 hover:text-red-500 rounded transition-all cursor-pointer"
             >
               <X className="w-3 h-3" />
             </button>
@@ -83,6 +85,7 @@ export const SubtaskList: React.FC<SubtaskListProps> = ({
           <Plus className="w-4 h-4 text-zinc-400" />
           <input
             type="text"
+            data-testid="subtask-add-input"
             value={newSubtask}
             onChange={(e) => setNewSubtask(e.target.value)}
             onKeyDown={handleAdd}

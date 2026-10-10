@@ -9,8 +9,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Task } from '@/lib/db/types';
 import { createTask, updateTask, deleteTask } from '@/lib/db/tasks';
-import { useTimerStore } from '@/stores/timerStore';
+import { startSession } from '@/lib/timer/sessionService';
 import { useTasksForDate } from '@/hooks/useData';
+import { useTaskCompletion } from '@/context/TaskCompletionContext';
 
 export default function TodayPage() {
   const todayDate = format(new Date(), "yyyy-MM-dd");
@@ -20,7 +21,7 @@ export default function TodayPage() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | undefined>(undefined);
   
-  const startTimer = useTimerStore(state => state.startTimer);
+  const { completeWithOutlierCheck } = useTaskCompletion();
 
   const handleOpenNewTask = () => {
     setTaskToEdit(undefined);
@@ -41,7 +42,12 @@ export default function TodayPage() {
     if (taskToEdit) {
       await updateTask(taskToEdit.id, data);
     } else {
-      await createTask({ ...data, subtasks: [], status: 'pending', scheduledDate: data.scheduledDate || todayDate });
+      await createTask({
+        ...data,
+        subtasks: data.subtasks || [],
+        status: 'pending',
+        scheduledDate: data.scheduledDate || todayDate
+      });
     }
     handleCloseModal();
   };
@@ -51,14 +57,23 @@ export default function TodayPage() {
   };
 
   const handleStatusChange = async (taskId: string, status: Task['status']) => {
-    await updateTask(taskId, { 
-      status, 
-      completedAt: status === 'completed' ? new Date().toISOString() : undefined 
-    });
+    if (status === 'completed') {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        await completeWithOutlierCheck(task);
+      } else {
+        await updateTask(taskId, { status, completedAt: new Date().toISOString() });
+      }
+    } else {
+      await updateTask(taskId, { 
+        status: 'pending', 
+        completedAt: undefined 
+      });
+    }
   };
 
-  const handleStartTimer = (task: Task) => {
-    startTimer(task);
+  const handleStartTimer = async (task: Task) => {
+    await startSession(task);
   };
 
   return (
@@ -68,7 +83,12 @@ export default function TodayPage() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Today</h1>
           <p className="text-muted-foreground mt-1">{displayDate}</p>
         </div>
-        <Button variant="primary" onClick={handleOpenNewTask} className="flex items-center gap-2">
+        <Button
+          variant="primary"
+          onClick={handleOpenNewTask}
+          data-testid="add-task-btn"
+          className="flex items-center gap-2 cursor-pointer"
+        >
           <Plus className="w-4 h-4" />
           Add Task
         </Button>
@@ -81,7 +101,6 @@ export default function TodayPage() {
           onDelete={handleDeleteTask}
           onStatusChange={handleStatusChange}
           onStartTimer={handleStartTimer}
-          onViewHistory={() => {}}
         />
       </div>
 

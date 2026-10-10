@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Task } from '@/lib/db/types';
+import { Task, Subtask } from '@/lib/db/types';
+import { SubtaskList } from './SubtaskList';
 import { X, Clock } from 'lucide-react';
 
 export interface TaskFormData {
   title: string;
   description: string;
   tags: string[];
+  subtasks: Subtask[];
   nominalMinutes: number;
   isRecurring: boolean;
   recurrenceRule?: string;
@@ -28,6 +30,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
   const [description, setDescription] = useState(task?.description || '');
   const [tags, setTags] = useState<string[]>(task?.tags || []);
   const [tagInput, setTagInput] = useState('');
+  const [subtasks, setSubtasks] = useState<Subtask[]>(task?.subtasks || []);
   const [nominalMinutes, setNominalMinutes] = useState<number>(task?.nominalMinutes || 30);
   const [scheduledDate, setScheduledDate] = useState<string>(
     task?.scheduledDate ? new Date(task.scheduledDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
@@ -58,6 +61,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
       title,
       description,
       tags,
+      subtasks,
       nominalMinutes,
       isRecurring,
       recurrenceRule: isRecurring ? recurrenceRule : undefined,
@@ -72,6 +76,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Title *</label>
         <input
           type="text"
+          data-testid="task-form-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
@@ -90,6 +95,11 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
           rows={3}
           placeholder="Add some details..."
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Subtasks</label>
+        <SubtaskList subtasks={subtasks} onChange={setSubtasks} />
       </div>
 
       <div>
@@ -122,7 +132,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
               key={mins}
               type="button"
               onClick={() => setNominalMinutes(mins)}
-              className={`px-3 py-1 text-sm rounded-full border transition-colors ${
+              className={`px-3 py-1 text-sm rounded-full border transition-colors cursor-pointer ${
                 nominalMinutes === mins 
                   ? 'bg-blue-50 border-blue-200 text-blue-600 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400' 
                   : 'bg-transparent border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800'
@@ -199,13 +209,14 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-300 rounded-lg hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="px-4 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-300 rounded-lg hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          data-testid="task-form-submit"
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer"
         >
           {task ? 'Update Task' : 'Create Task'}
         </button>

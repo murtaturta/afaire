@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TimerTicker } from "@/components/timer/TimerTicker";
+import { TimerDrawer } from "@/components/timer/TimerDrawer";
+import { TaskCompletionProvider } from "@/context/TaskCompletionContext";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -16,10 +18,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">{children}</main>
-        <TimerTicker />
-        {/* <TimerDrawer /> UI agent will mount it here */}
+        <TaskCompletionProvider>
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto">{children}</main>
+          <TimerTicker />
+          <TimerDrawer />
+        </TaskCompletionProvider>
       </body>
     </html>
   );
