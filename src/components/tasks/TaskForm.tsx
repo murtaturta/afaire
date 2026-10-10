@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Task, Subtask } from '@/lib/db/types';
 import { SubtaskList } from './SubtaskList';
-import { X, Clock } from 'lucide-react';
+import { TASK_COLORS, DEFAULT_TASK_COLOR } from '@/lib/constants/colors';
+import { X, Clock, Check } from 'lucide-react';
 
 export interface TaskFormData {
   title: string;
@@ -15,6 +16,7 @@ export interface TaskFormData {
   recurrenceRule?: string;
   scheduledDate?: string;
   timeSlotPreference: 'morning' | 'afternoon' | 'evening' | 'any';
+  color?: string;
 }
 
 interface TaskFormProps {
@@ -31,6 +33,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
   const [tags, setTags] = useState<string[]>(task?.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [subtasks, setSubtasks] = useState<Subtask[]>(task?.subtasks || []);
+  const [color, setColor] = useState<string>(task?.color || DEFAULT_TASK_COLOR);
   const [nominalMinutes, setNominalMinutes] = useState<number>(task?.nominalMinutes || 30);
   const [scheduledDate, setScheduledDate] = useState<string>(
     task?.scheduledDate ? new Date(task.scheduledDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
@@ -62,6 +65,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
       description,
       tags,
       subtasks,
+      color,
       nominalMinutes,
       isRecurring,
       recurrenceRule: isRecurring ? recurrenceRule : undefined,
@@ -84,6 +88,29 @@ export const TaskForm: React.FC<TaskFormProps> = ({ task, onSubmit, onCancel }) 
           className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-zinc-800 dark:border-zinc-700"
           placeholder="What needs to be done?"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Color Theme</label>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {TASK_COLORS.map((c) => {
+            const isSelected = color === c.value;
+            return (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => setColor(c.value)}
+                style={{ backgroundColor: c.value }}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  isSelected ? 'ring-2 ring-offset-2 ring-primary scale-110' : 'opacity-80 hover:opacity-100 hover:scale-105'
+                }`}
+                title={c.name}
+              >
+                {isSelected && <Check className="w-4 h-4 text-white stroke-[3]" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div>

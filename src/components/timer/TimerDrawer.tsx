@@ -61,59 +61,71 @@ export const TimerDrawer: React.FC = () => {
         </div>
       )}
 
-      {/* Expanded Drawer */}
+      {/* Expanded Drawer + Outside-Click Backdrop */}
       <AnimatePresence>
         {isDrawerOpen && (
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 250 }}
-            className="fixed top-0 right-0 bottom-0 w-80 sm:w-96 bg-card border-l border-border shadow-2xl z-40 flex flex-col"
-            aria-label="Active timers drawer"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border bg-card">
-              <div className="flex items-center gap-2">
-                <Timer className="w-5 h-5 text-primary" />
-                <h3 className="font-semibold text-base text-foreground">
-                  Active Timers
-                </h3>
-                {totalCount > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                    {totalCount}
-                  </span>
+          <>
+            {/* Click-outside backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDrawerOpen(false)}
+              className="fixed inset-0 z-35 bg-black/20 backdrop-blur-[1px]"
+              aria-hidden="true"
+            />
+
+            <motion.aside
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+              className="fixed top-0 right-0 bottom-0 w-80 sm:w-96 bg-card border-l border-border shadow-2xl z-40 flex flex-col"
+              aria-label="Active timers drawer"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border bg-card">
+                <div className="flex items-center gap-2">
+                  <Timer className="w-5 h-5 text-primary" />
+                  <h3 className="font-semibold text-base text-foreground">
+                    Active Timers
+                  </h3>
+                  {totalCount > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                      {totalCount}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  data-testid="drawer-toggle"
+                  onClick={() => setDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  aria-label="Close active timers drawer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Timers List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {timerList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-muted-foreground space-y-2">
+                    <Timer className="w-8 h-8 opacity-40" />
+                    <p className="text-sm">No active timers</p>
+                  </div>
+                ) : (
+                  timerList.map((timer) => (
+                    <TimerItem
+                      key={timer.taskId}
+                      timer={timer}
+                      onComplete={completeWithOutlierCheck}
+                    />
+                  ))
                 )}
               </div>
-              <button
-                type="button"
-                data-testid="drawer-toggle"
-                onClick={() => setDrawerOpen(false)}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                aria-label="Close active timers drawer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Timers List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {timerList.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground space-y-2">
-                  <Timer className="w-8 h-8 opacity-40" />
-                  <p className="text-sm">No active timers</p>
-                </div>
-              ) : (
-                timerList.map((timer) => (
-                  <TimerItem
-                    key={timer.taskId}
-                    timer={timer}
-                    onComplete={completeWithOutlierCheck}
-                  />
-                ))
-              )}
-            </div>
-          </motion.aside>
+            </motion.aside>
+          </>
         )}
       </AnimatePresence>
     </>

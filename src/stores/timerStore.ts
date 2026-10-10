@@ -15,6 +15,7 @@ export interface TimerInstance {
   pauseStart: number | null;
   totalPausedMs: number;
   pausedDurations: number[];
+  baseElapsedMs?: number;
 }
 
 export interface SessionData {
@@ -36,7 +37,7 @@ export interface TimerState {
   setHasHydrated: (state: boolean) => void;
   setDrawerOpen: (isOpen: boolean) => void;
 
-  startTimer: (task: Task, subtaskId?: string, subtaskTitle?: string) => void;
+  startTimer: (task: Task, subtaskId?: string, subtaskTitle?: string, baseElapsedMs?: number) => void;
   pauseTimer: (taskId: string) => void;
   resumeTimer: (taskId: string) => void;
   stopTimer: (taskId: string) => SessionData | null;
@@ -54,16 +55,14 @@ export const useTimerStore = create<TimerState>()(
       setHasHydrated: (state) => set({ hasHydrated: state }),
       setDrawerOpen: (isOpen) => set({ isDrawerOpen: isOpen }),
 
-      startTimer: (task, subtaskId, subtaskTitle) => {
+      startTimer: (task, subtaskId, subtaskTitle, baseElapsedMs = 0) => {
         set((state) => {
           const current = state.timers[task.id];
           if (current && current.subtaskId === subtaskId) {
-            return { isDrawerOpen: true };
+            return state;
           }
-          // The service should have already stopped the previous timer if it was different
           
           return {
-            isDrawerOpen: true,
             timers: {
               ...state.timers,
               [task.id]: {
@@ -74,10 +73,11 @@ export const useTimerStore = create<TimerState>()(
                 isRunning: true,
                 isPaused: false,
                 startTime: Date.now(),
-                elapsed: 0,
+                elapsed: baseElapsedMs,
                 pauseStart: null,
                 totalPausedMs: 0,
                 pausedDurations: [],
+                baseElapsedMs,
               }
             }
           };
@@ -184,7 +184,7 @@ export const useTimerStore = create<TimerState>()(
             if (timer.isRunning) {
               newTimers[id] = {
                 ...timer,
-                elapsed: now - timer.startTime - timer.totalPausedMs,
+                elapsed: (timer.baseElapsedMs || 0) + (now - timer.startTime - timer.totalPausedMs),
               };
               hasUpdates = true;
             }

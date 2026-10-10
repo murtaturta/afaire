@@ -16,6 +16,7 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   templateId?: string;
+  color?: string;
 }
 
 export interface Subtask {

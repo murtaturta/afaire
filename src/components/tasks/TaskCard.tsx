@@ -93,6 +93,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       data-testid={`task-card-${task.id}`}
+      style={{ borderLeftColor: task.color || '#2563eb', borderLeftWidth: '4px' }}
       className={`group relative flex flex-col p-4 rounded-xl border bg-card text-card-foreground shadow-xs transition-colors ${
         isCompleted
           ? 'border-border/60 opacity-75'
@@ -117,6 +118,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         {/* Task Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: task.color || '#2563eb' }}
+              title="Task color"
+            />
             <h3
               className={`text-base font-medium truncate ${
                 isCompleted

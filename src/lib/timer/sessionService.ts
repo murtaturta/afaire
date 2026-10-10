@@ -39,7 +39,22 @@ export async function startSession(task: Task, subtaskId?: string, subtaskTitle?
     await stopSession(task.id);
   }
 
-  store.startTimer(task, subtaskId, subtaskTitle);
+  // Calculate past accumulated active time for this task/subtask
+  const allSessions = await getSessionsByTask(task.id);
+  let baseElapsedMs = 0;
+  for (const s of allSessions) {
+    if (s.excludeFromHistory) continue;
+    const ms = s.adjustedDurationMs ?? s.activeDurationMs;
+    if (subtaskId) {
+      if (s.subtaskId === subtaskId) {
+        baseElapsedMs += ms;
+      }
+    } else {
+      baseElapsedMs += ms;
+    }
+  }
+
+  store.startTimer(task, subtaskId, subtaskTitle, baseElapsedMs);
 }
 
 export function computeTaskSplit(sessions: TimerSession[], subtasks: Subtask[]) {
@@ -215,8 +230,9 @@ export async function applyOutlierChoice(
 export async function toggleSubtaskDone(taskId: string, subtaskId: string, done: boolean) {
   const store = useTimerStore.getState();
   const current = store.timers[taskId];
+  const wasSubtaskTimerActive = done && current && current.subtaskId === subtaskId;
   
-  if (done && current && current.subtaskId === subtaskId) {
+  if (wasSubtaskTimerActive) {
     await stopSession(taskId);
   }
 
@@ -226,5 +242,15 @@ export async function toggleSubtaskDone(taskId: string, subtaskId: string, done:
       st.id === subtaskId ? { ...st, done } : st
     );
     await updateTask(taskId, { subtasks: updatedSubtasks });
+
+    // When a subtask completes while its timer was running, seamlessly continue tracking the parent task from total accumulated time
+    if (wasSubtaskTimerActive) {
+      const allSessions = await getSessionsByTask(taskId);
+      const totalAccumulatedMs = allSessions
+        .filter(s => !s.excludeFromHistory)
+        .reduce((sum, s) => sum + (s.adjustedDurationMs ?? s.activeDurationMs), 0);
+
+      store.startTimer(task, undefined, undefined, totalAccumulatedMs);
+    }
   }
 }

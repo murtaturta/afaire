@@ -28,3 +28,15 @@ export function useTaskSplit(taskId: string) {
     [taskId]
   );
 }
+
+export function useAllSessions() {
+  return useLiveQuery(() => db.timerSessions.toArray(), []);
+}
+
+export function useAllTasks() {
+  return useLiveQuery(() => db.tasks.toArray(), []);
+}
+
+export function useAllCompletionRecords() {
+  return useLiveQuery(() => db.completionRecords.toArray(), []);
+}
