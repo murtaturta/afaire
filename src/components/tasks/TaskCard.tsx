@@ -7,7 +7,7 @@ import { startSession, toggleSubtaskDone } from '@/lib/timer/sessionService';
 import { updateTask } from '@/lib/db/tasks';
 import { useTaskCompletion } from '@/context/TaskCompletionContext';
 import { TaskTimeline } from './TaskTimeline';
-import { Play, Pencil, Trash2, CheckCircle2, Circle, Check, Plus, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pencil, Trash2, CheckCircle2, Circle, Check, Plus, X, ChevronDown, ChevronUp, History } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface TaskCardProps {
@@ -26,7 +26,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onStartTimer
 }) => {
   const isCompleted = task.status === 'completed';
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(isCompleted);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
   const timers = useTimerStore((state) => state.timers);
@@ -45,6 +45,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       if (onStatusChange) onStatusChange(task.id, 'pending');
     } else {
       await completeWithOutlierCheck(task);
+      setIsExpanded(true);
       if (onStatusChange) onStatusChange(task.id, 'completed');
     }
   };
@@ -156,25 +157,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 <span>{task.nominalMinutes}m est.</span>
               )}
             </div>
-
-            <button
-              type="button"
-              data-testid={`timeline-toggle-${task.id}`}
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer"
-            >
-              {isExpanded ? (
-                <>
-                  <ChevronUp className="w-3.5 h-3.5" />
-                  <span>Hide Details</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                  <span>Details & Splits</span>
-                </>
-              )}
-            </button>
           </div>
         </div>
 
@@ -301,9 +283,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
       </div>
 
+      {/* Prominent Activity & Splits Toggle Button */}
+      <button
+        type="button"
+        data-testid={`timeline-toggle-${task.id}`}
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="mt-3.5 flex items-center justify-between w-full px-3 py-2 rounded-lg border border-border/80 bg-muted/40 hover:bg-muted/70 text-xs font-medium text-foreground transition-all cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <History className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span>{isCompleted ? 'Completion Time Split & Sessions' : 'Activity Split & Sessions'}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+          <span>{isExpanded ? 'Hide' : 'View'}</span>
+          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </div>
+      </button>
+
       {/* Expandable Section: Timeline & Split */}
       {isExpanded && (
-        <div className="mt-4 pl-8">
+        <div className="mt-3 pt-1">
           <TaskTimeline task={task} />
         </div>
       )}
