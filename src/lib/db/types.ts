@@ -23,6 +23,7 @@ export interface Subtask {
   id: string;
   title: string;
   done: boolean;
+  comment?: string;
 }
 
 export interface TimerSession {

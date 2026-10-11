@@ -22,3 +22,7 @@ export async function updateSession(id: string, updates: Partial<TimerSession>):
 export async function getSessionsByTask(taskId: string): Promise<TimerSession[]> {
   return db.timerSessions.where('taskId').equals(taskId).toArray();
 }
+
+export async function deleteSession(id: string): Promise<void> {
+  await db.timerSessions.delete(id);
+}

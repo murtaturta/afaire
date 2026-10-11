@@ -12,8 +12,16 @@ export function useTasksForDate(date: string) {
 
 export function useTaskSessions(taskId: string) {
   return useLiveQuery(
-    () => db.timerSessions.where('taskId').equals(taskId).sortBy('startedAt'),
+    () => db.timerSessions.where('taskId').equals(taskId).toArray()
+      .then(sessions => sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt))),
     [taskId]
+  );
+}
+
+export function useSessionsForDate(date: string) {
+  return useLiveQuery(
+    () => db.timerSessions.filter(s => s.startedAt.startsWith(date)).toArray(),
+    [date]
   );
 }
 
@@ -39,4 +47,19 @@ export function useAllTasks() {
 
 export function useAllCompletionRecords() {
   return useLiveQuery(() => db.completionRecords.toArray(), []);
+}
+
+export function useUserSettings() {
+  return useLiveQuery(async () => {
+    const s = await db.settings.get('user-settings');
+    if (s) return s;
+    return {
+      id: 'user-settings',
+      dailyCapacityHours: 6,
+      bufferPercent: 15,
+      emaAlpha: 0.3,
+      outlierThresholdSigma: 2.0,
+      theme: 'system' as const,
+    };
+  }, []);
 }

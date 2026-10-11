@@ -15,30 +15,61 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="w-60 h-full border-r border-border bg-card text-card-foreground flex flex-col">
-      <div className="p-6 flex items-center gap-3 border-b border-border">
-        <Timer className="w-6 h-6 text-primary" />
-        <span className="font-bold text-xl tracking-tight lowercase">afaire</span>
-      </div>
-      <nav className="flex-1 p-4 space-y-2">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                isActive
-                  ? "bg-primary text-primary-foreground font-medium"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              {item.name}
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+    <>
+      {/* Mobile Top Navigation Bar */}
+      <header className="md:hidden w-full border-b border-border bg-card/95 backdrop-blur-md sticky top-0 z-20 px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Timer className="w-5 h-5 text-primary" />
+          <span className="font-bold text-lg tracking-tight lowercase">afaire</span>
+        </div>
+        <nav className="flex items-center gap-1.5">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`p-2 rounded-lg transition-colors flex items-center justify-center ${
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+                title={item.name}
+                aria-label={item.name}
+              >
+                <item.icon className="w-4 h-4" />
+              </Link>
+            );
+          })}
+        </nav>
+      </header>
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-60 h-screen sticky top-0 border-r border-border bg-card text-card-foreground flex-col shrink-0">
+        <div className="p-6 flex items-center gap-3 border-b border-border">
+          <Timer className="w-6 h-6 text-primary" />
+          <span className="font-bold text-xl tracking-tight lowercase">afaire</span>
+        </div>
+        <nav className="flex-1 p-4 space-y-2">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <item.icon className="w-5 h-5" />
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+    </>
   );
 }

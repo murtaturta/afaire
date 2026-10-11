@@ -1,11 +1,13 @@
-import { Task } from '@/lib/db/types';
+import { Task, TimerSession } from '@/lib/db/types';
+import { formatDuration, formatMinutes } from '@/lib/utils/duration';
 
-interface IcsOptions {
-  includeCompleted?: boolean;
+export interface IcsOptions {
+  includeSessions?: boolean;
+  includePlannedTasks?: boolean;
   calendarName?: string;
 }
 
-function formatDateToIcs(date: Date): string {
+function formatDateToIcsUtc(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return (
     date.getUTCFullYear() +
@@ -19,6 +21,18 @@ function formatDateToIcs(date: Date): string {
   );
 }
 
+function formatDateToIcsDateOnly(dateStr: string): string {
+  // Converts YYYY-MM-DD to YYYYMMDD
+  return dateStr.replace(/-/g, '');
+}
+
+function getNextDayDateOnly(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${next.getUTCFullYear()}${pad(next.getUTCMonth() + 1)}${pad(next.getUTCDate())}`;
+}
+
 function escapeIcsText(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
@@ -27,10 +41,20 @@ function escapeIcsText(text: string): string {
     .replace(/\n/g, '\\n');
 }
 
-export function generateIcsCalendar(tasks: Task[], options: IcsOptions = {}): string {
-  const { includeCompleted = true, calendarName = 'afaire Tasks' } = options;
+export function generateIcsCalendar(
+  tasks: Task[],
+  sessions: TimerSession[] = [],
+  options: IcsOptions = {}
+): string {
+  const {
+    includeSessions = true,
+    includePlannedTasks = true,
+    calendarName = 'afaire Tasks',
+  } = options;
+
   const now = new Date();
-  const dtstamp = formatDateToIcs(now);
+  const dtstamp = formatDateToIcsUtc(now);
+  const taskMap = new Map<string, Task>(tasks.map((t) => [t.id, t]));
 
   const lines: string[] = [
     'BEGIN:VCALENDAR',
@@ -42,87 +66,113 @@ export function generateIcsCalendar(tasks: Task[], options: IcsOptions = {}): st
     'X-WR-TIMEZONE:UTC',
   ];
 
-  for (const task of tasks) {
-    if (!includeCompleted && task.status === 'completed') {
-      continue;
-    }
+  // 1. Session-by-Session Focus Blocks (exact real-world start and end times)
+  if (includeSessions && sessions.length > 0) {
+    for (const session of sessions) {
+      if (session.excludeFromHistory) continue;
 
-    // Determine start and end date/time
-    let startDate: Date;
-    const durationMinutes = task.calibratedMinutes || task.nominalMinutes || 30;
+      const task = taskMap.get(session.taskId);
+      const taskTitle = task ? task.title : 'Task Session';
 
-    if (task.scheduledDate) {
-      // Base date from scheduledDate YYYY-MM-DD
-      const [year, month, day] = task.scheduledDate.split('-').map(Number);
-      startDate = new Date(Date.UTC(year, month - 1, day));
+      const startDate = new Date(session.startedAt);
+      const endDate = session.endedAt
+        ? new Date(session.endedAt)
+        : new Date(startDate.getTime() + (session.activeDurationMs || 60000));
 
-      // Adjust hours based on timeSlotPreference
-      switch (task.timeSlotPreference) {
-        case 'morning':
-          startDate.setUTCHours(9, 0, 0, 0);
-          break;
-        case 'afternoon':
-          startDate.setUTCHours(14, 0, 0, 0);
-          break;
-        case 'evening':
-          startDate.setUTCHours(18, 0, 0, 0);
-          break;
-        default:
-          startDate.setUTCHours(10, 0, 0, 0);
-          break;
+      const durationStr = formatDuration(session.activeDurationMs || 0);
+      const summaryTitle = session.subtaskTitle
+        ? `${taskTitle} › ${session.subtaskTitle} (${durationStr})`
+        : `${taskTitle} (${durationStr})`;
+
+      const descLines: string[] = [];
+      descLines.push(`Focus Session: ${durationStr}`);
+      if (session.subtaskTitle) {
+        descLines.push(`Subtask: ${session.subtaskTitle}`);
       }
-    } else {
-      // Default to today if unscheduled
-      startDate = new Date();
-      startDate.setUTCHours(10, 0, 0, 0);
-    }
-
-    const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
-
-    // Build event description
-    const descParts: string[] = [];
-    if (task.description) {
-      descParts.push(task.description);
-      descParts.push('');
-    }
-
-    descParts.push(`Estimated duration: ${task.nominalMinutes}m`);
-    if (task.calibratedMinutes) {
-      descParts.push(`Calibrated duration: ${task.calibratedMinutes}m`);
-    }
-
-    if (task.tags && task.tags.length > 0) {
-      descParts.push(`Tags: ${task.tags.map((t) => `#${t}`).join(', ')}`);
-    }
-
-    if (task.subtasks && task.subtasks.length > 0) {
-      descParts.push('');
-      descParts.push('Subtasks:');
-      for (const st of task.subtasks) {
-        descParts.push(`- [${st.done ? 'x' : ' '}] ${st.title}`);
+      if (session.pausedDurations && session.pausedDurations.length > 0) {
+        descLines.push(`Pauses: ${session.pausedDurations.length}`);
       }
+      if (task) {
+        descLines.push('');
+        descLines.push(`Overall Task: ${task.title}`);
+        descLines.push(`Status: ${task.status}`);
+        if (task.description) {
+          descLines.push(task.description);
+        }
+        if (task.subtasks && task.subtasks.length > 0) {
+          descLines.push('');
+          descLines.push('Subtasks:');
+          for (const st of task.subtasks) {
+            descLines.push(`- [${st.done ? 'x' : ' '}] ${st.title}`);
+          }
+        }
+      }
+
+      descLines.push('');
+      descLines.push('Logged via afaire: https://murtaturta.github.io/afaire/');
+
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:session-${session.id}@afaire`);
+      lines.push(`DTSTAMP:${dtstamp}`);
+      lines.push(`DTSTART:${formatDateToIcsUtc(startDate)}`);
+      lines.push(`DTEND:${formatDateToIcsUtc(endDate)}`);
+      lines.push(`SUMMARY:${escapeIcsText(summaryTitle)}`);
+      lines.push(`DESCRIPTION:${escapeIcsText(descLines.join('\n'))}`);
+      lines.push('STATUS:CONFIRMED');
+      if (task && task.tags && task.tags.length > 0) {
+        lines.push(`CATEGORIES:${escapeIcsText(task.tags.join(','))}`);
+      }
+      lines.push('END:VEVENT');
     }
+  }
 
-    descParts.push('');
-    descParts.push('Managed with afaire: https://murtaturta.github.io/afaire/');
+  // 2. Planned / Scheduled Tasks (All-Day Items at top of day so they don't block calendar hours)
+  if (includePlannedTasks) {
+    for (const task of tasks) {
+      if (!task.scheduledDate) continue;
 
-    const description = escapeIcsText(descParts.join('\n'));
-    const summary = escapeIcsText(
-      task.status === 'completed' ? `✓ ${task.title}` : task.title
-    );
+      const estMinutes = task.calibratedMinutes || task.nominalMinutes || 30;
+      const statusIcon = task.status === 'completed' ? '✓ ' : '';
+      const summaryTitle = `${statusIcon}[Planned] ${task.title} (~${formatMinutes(estMinutes)})`;
 
-    lines.push('BEGIN:VEVENT');
-    lines.push(`UID:task-${task.id}@afaire`);
-    lines.push(`DTSTAMP:${dtstamp}`);
-    lines.push(`DTSTART:${formatDateToIcs(startDate)}`);
-    lines.push(`DTEND:${formatDateToIcs(endDate)}`);
-    lines.push(`SUMMARY:${summary}`);
-    lines.push(`DESCRIPTION:${description}`);
-    lines.push(task.status === 'completed' ? 'STATUS:COMPLETED' : 'STATUS:CONFIRMED');
-    if (task.tags && task.tags.length > 0) {
-      lines.push(`CATEGORIES:${escapeIcsText(task.tags.join(','))}`);
+      const descLines: string[] = [];
+      descLines.push(`Planned Task: ${task.title}`);
+      descLines.push(`Estimated: ${formatMinutes(task.nominalMinutes)}`);
+      if (task.calibratedMinutes) {
+        descLines.push(`Calibrated: ${formatMinutes(task.calibratedMinutes)}`);
+      }
+      descLines.push(`Status: ${task.status}`);
+      if (task.description) {
+        descLines.push('');
+        descLines.push(task.description);
+      }
+      if (task.subtasks && task.subtasks.length > 0) {
+        descLines.push('');
+        descLines.push('Subtasks:');
+        for (const st of task.subtasks) {
+          descLines.push(`- [${st.done ? 'x' : ' '}] ${st.title}`);
+        }
+      }
+
+      descLines.push('');
+      descLines.push('Managed via afaire: https://murtaturta.github.io/afaire/');
+
+      const startDateStr = formatDateToIcsDateOnly(task.scheduledDate);
+      const endDateStr = getNextDayDateOnly(task.scheduledDate);
+
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:task-${task.id}-planned@afaire`);
+      lines.push(`DTSTAMP:${dtstamp}`);
+      lines.push(`DTSTART;VALUE=DATE:${startDateStr}`);
+      lines.push(`DTEND;VALUE=DATE:${endDateStr}`);
+      lines.push(`SUMMARY:${escapeIcsText(summaryTitle)}`);
+      lines.push(`DESCRIPTION:${escapeIcsText(descLines.join('\n'))}`);
+      lines.push(task.status === 'completed' ? 'STATUS:COMPLETED' : 'STATUS:CONFIRMED');
+      if (task.tags && task.tags.length > 0) {
+        lines.push(`CATEGORIES:${escapeIcsText(task.tags.join(','))}`);
+      }
+      lines.push('END:VEVENT');
     }
-    lines.push('END:VEVENT');
   }
 
   lines.push('END:VCALENDAR');
@@ -132,8 +182,13 @@ export function generateIcsCalendar(tasks: Task[], options: IcsOptions = {}): st
 /**
  * Initiates a browser download of the generated .ics file
  */
-export function downloadIcsFile(tasks: Task[], filename: string = 'afaire-tasks.ics') {
-  const content = generateIcsCalendar(tasks);
+export function downloadIcsFile(
+  tasks: Task[],
+  sessions: TimerSession[] = [],
+  options?: IcsOptions,
+  filename: string = 'afaire-tasks.ics'
+) {
+  const content = generateIcsCalendar(tasks, sessions, options);
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

@@ -65,13 +65,13 @@ export const TimerDrawer: React.FC = () => {
       <AnimatePresence>
         {isDrawerOpen && (
           <>
-            {/* Click-outside backdrop */}
+            {/* Click-outside backdrop on mobile */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setDrawerOpen(false)}
-              className="fixed inset-0 z-35 bg-black/20 backdrop-blur-[1px]"
+              className="sm:hidden fixed inset-0 z-35 bg-black/20 backdrop-blur-[1px]"
               aria-hidden="true"
             />
 
@@ -80,7 +80,7 @@ export const TimerDrawer: React.FC = () => {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 250 }}
-              className="fixed top-0 right-0 bottom-0 w-80 sm:w-96 bg-card border-l border-border shadow-2xl z-40 flex flex-col"
+              className="fixed top-0 right-0 bottom-0 w-full sm:w-96 max-w-full bg-card border-l border-border shadow-2xl z-40 flex flex-col"
               aria-label="Active timers drawer"
             >
               {/* Header */}

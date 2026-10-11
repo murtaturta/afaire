@@ -59,10 +59,11 @@ export const useTimerStore = create<TimerState>()(
         set((state) => {
           const current = state.timers[task.id];
           if (current && current.subtaskId === subtaskId) {
-            return state;
+            return { ...state, isDrawerOpen: true };
           }
           
           return {
+            isDrawerOpen: true,
             timers: {
               ...state.timers,
               [task.id]: {

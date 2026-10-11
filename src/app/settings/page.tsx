@@ -1,9 +1,17 @@
 "use client";
 
 import React, { useState } from 'react';
-import { useAllTasks } from '@/hooks/useData';
+import { useAllTasks, useAllSessions, useUserSettings } from '@/hooks/useData';
 import { generateIcsCalendar, downloadIcsFile } from '@/lib/calendar/ics';
 import { downloadBackupJson, importBackupData } from '@/lib/db/backup';
+import { updateSettings } from '@/lib/db/settings';
+import { recalibratePendingTasks } from '@/lib/calibration/engine';
+import {
+  getRollingSnapshots,
+  createRollingSnapshot,
+  restoreRollingSnapshot,
+  SnapshotMeta
+} from '@/lib/db/snapshots';
 import {
   Calendar,
   Download,
@@ -17,7 +25,10 @@ import {
   Key,
   Database,
   Upload,
-  FileJson
+  FileJson,
+  BatteryCharging,
+  Sliders,
+  History
 } from 'lucide-react';
 
 const DEFAULT_GIST_ID = '4a5ce16179357ead77fe22325d59b20e';
@@ -39,7 +50,9 @@ export default function SettingsPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
-  const [includeCompleted, setIncludeCompleted] = useState(true);
+  const sessions = useAllSessions() || [];
+  const [includeSessions, setIncludeSessions] = useState(true);
+  const [includePlannedTasks, setIncludePlannedTasks] = useState(true);
 
   const handleCopyUrl = async () => {
     try {
@@ -52,11 +65,57 @@ export default function SettingsPage() {
   };
 
   const handleDownloadIcs = () => {
-    downloadIcsFile(tasks, 'afaire-tasks.ics');
+    downloadIcsFile(tasks, sessions, { includeSessions, includePlannedTasks }, 'afaire-tasks.ics');
+  };
+
+  const userSettings = useUserSettings();
+  const [capacityStatus, setCapacityStatus] = useState<string | null>(null);
+
+  const handleUpdateCapacityHours = async (hours: number) => {
+    await updateSettings({ dailyCapacityHours: hours });
+    setCapacityStatus('Daily capacity limit updated');
+    setTimeout(() => setCapacityStatus(null), 2500);
+  };
+
+  const handleUpdateAlpha = async (alpha: number) => {
+    await updateSettings({ emaAlpha: alpha });
+    setCapacityStatus('Learning rate updated');
+    setTimeout(() => setCapacityStatus(null), 2500);
+  };
+
+  const handleRecalibrate = async () => {
+    await recalibratePendingTasks();
+    setCapacityStatus('All open tasks recalculated with latest learned pace');
+    setTimeout(() => setCapacityStatus(null), 3000);
   };
 
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
+
+  React.useEffect(() => {
+    setSnapshots(getRollingSnapshots());
+  }, []);
+
+  const handleCreateSnapshot = async () => {
+    const snap = await createRollingSnapshot('Manual snapshot from Settings');
+    if (snap) {
+      setSnapshots(getRollingSnapshots());
+      setBackupStatus('Snapshot created successfully');
+      setTimeout(() => setBackupStatus(null), 3000);
+    }
+  };
+
+  const handleRestoreSnapshot = async (id: string) => {
+    try {
+      const result = await restoreRollingSnapshot(id);
+      setBackupStatus(`Restored ${result.tasksCount} tasks and ${result.sessionsCount} sessions from snapshot`);
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch (err: any) {
+      setBackupStatus(`Restore failed: ${err.message}`);
+    }
+  };
 
   const handleExportJson = async () => {
     try {
@@ -101,7 +160,7 @@ export default function SettingsPage() {
     setSyncStatus(null);
 
     try {
-      const icsContent = generateIcsCalendar(tasks, { includeCompleted });
+      const icsContent = generateIcsCalendar(tasks, sessions, { includeSessions, includePlannedTasks });
       const targetGistId = gistId.trim() || DEFAULT_GIST_ID;
 
       const res = await fetch(`https://api.github.com/gists/${targetGistId}`, {
@@ -212,13 +271,51 @@ export default function SettingsPage() {
           </ol>
         </div>
 
+        {/* Calendar Content Options */}
+        <div className="pt-4 border-t border-border space-y-3">
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+            Calendar Content Options
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeSessions}
+                onChange={(e) => setIncludeSessions(e.target.checked)}
+                className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+              />
+              <div className="space-y-0.5">
+                <span className="font-medium text-foreground block">Focus Sessions ({sessions.length})</span>
+                <span className="text-muted-foreground leading-normal block">
+                  Exact start & finish time blocks on your calendar for every task or subtask you tracked.
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includePlannedTasks}
+                onChange={(e) => setIncludePlannedTasks(e.target.checked)}
+                className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+              />
+              <div className="space-y-0.5">
+                <span className="font-medium text-foreground block">Planned Tasks ({tasks.filter(t => t.scheduledDate).length})</span>
+                <span className="text-muted-foreground leading-normal block">
+                  All-day banners at the top of scheduled days so they never block or collide with hourly slots.
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+
         {/* Publish & Sync Controls */}
         <div className="pt-4 border-t border-border space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-medium text-foreground">Update & Publish Tasks to Feed</h3>
               <p className="text-xs text-muted-foreground">
-                Currently contains {tasks.length} task{tasks.length === 1 ? '' : 's'}. Click to update your online feed with latest scheduled dates and subtasks.
+                Currently contains {tasks.length} task{tasks.length === 1 ? '' : 's'} and {sessions.length} session{sessions.length === 1 ? '' : 's'}. Click to update your online feed.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -289,6 +386,113 @@ export default function SettingsPage() {
           >
             <Download className="w-3.5 h-3.5" />
             <span>Download .ics File</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Cognitive Capacity & Pace Learning Card */}
+      <div className="p-6 rounded-2xl border border-border bg-card text-card-foreground shadow-xs space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <BatteryCharging className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-semibold text-foreground">Cognitive Capacity & Pace Learning</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Define your realistic focus limit for the day and control how quickly the calibration engine adapts to your actual speed.
+            </p>
+          </div>
+        </div>
+
+        {capacityStatus && (
+          <div className="p-3 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            {capacityStatus}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+          {/* Daily Capacity Hours */}
+          <div className="p-4 rounded-xl border border-border/80 bg-muted/20 space-y-3">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                Daily Focus Capacity Limit
+              </label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Target focused work hours per day before afaire flags an overload warning.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              {[4, 5, 6, 7, 8].map((h) => {
+                const isSelected = (userSettings?.dailyCapacityHours || 6) === h;
+                return (
+                  <button
+                    key={h}
+                    type="button"
+                    onClick={() => handleUpdateCapacityHours(h)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                        : 'border-border bg-card hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    {h}h
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* EMA Alpha Learning Rate */}
+          <div className="p-4 rounded-xl border border-border/80 bg-muted/20 space-y-3">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                Pace Learning Rate (EMA Alpha)
+              </label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Current: <strong className="text-foreground">{userSettings?.emaAlpha ?? 0.3}</strong>. Higher values adapt faster to your recent sessions; lower values keep estimates more stable.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              {[
+                { label: 'Steady (0.15)', val: 0.15 },
+                { label: 'Balanced (0.30)', val: 0.3 },
+                { label: 'Dynamic (0.45)', val: 0.45 },
+              ].map((opt) => {
+                const isSelected = (userSettings?.emaAlpha ?? 0.3) === opt.val;
+                return (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => handleUpdateAlpha(opt.val)}
+                    className={`flex-1 py-2 px-1 text-center rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                        : 'border-border bg-card hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Recalibrate all tasks button */}
+        <div className="pt-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h4 className="text-xs font-semibold text-foreground">Recalibrate Open Tasks</h4>
+            <p className="text-[11px] text-muted-foreground">
+              Re-run the learning algorithm across all pending and scheduled tasks using your latest completion records.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRecalibrate}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground text-xs font-medium transition-colors cursor-pointer shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-primary" />
+            <span>Recalibrate Now</span>
           </button>
         </div>
       </div>
@@ -367,6 +571,67 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Automated Rolling Snapshots */}
+        <div className="pt-4 border-t border-border space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-primary" />
+                <span>Automated Rolling Snapshots ({snapshots.length}/5)</span>
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Automatic local recovery points created during daily wrap-ups and manual checkpoints.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCreateSnapshot}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground text-xs font-medium transition-colors cursor-pointer shrink-0 self-start sm:self-auto"
+            >
+              <Database className="w-3.5 h-3.5 text-primary" />
+              <span>Save Snapshot</span>
+            </button>
+          </div>
+
+          {snapshots.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-2">
+              No snapshots saved yet. Snapshots will be generated automatically as you complete days or when you click "Save Snapshot".
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {snapshots.map((snap) => {
+                const dateFormatted = new Date(snap.createdAt).toLocaleString();
+                return (
+                  <div
+                    key={snap.id}
+                    className="p-3 rounded-xl border border-border/80 bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-foreground">{dateFormatted}</span>
+                        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.2 rounded bg-muted text-muted-foreground">
+                          {snap.reason}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {snap.tasksCount} task{snap.tasksCount === 1 ? '' : 's'} · {snap.sessionsCount} session{snap.sessionsCount === 1 ? '' : 's'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreSnapshot(snap.id)}
+                      className="px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-foreground font-medium text-xs transition-colors cursor-pointer shrink-0"
+                    >
+                      Restore This Snapshot
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

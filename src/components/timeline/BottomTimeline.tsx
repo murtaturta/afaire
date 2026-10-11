@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { format } from 'date-fns';
 import { formatDuration } from '@/lib/utils/duration';
 import { formatElapsed } from '@/hooks/useTimer';
-import { DEFAULT_TASK_COLOR } from '@/lib/constants/colors';
+import { DEFAULT_TASK_COLOR, getSubtaskShade } from '@/lib/constants/colors';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, SlidersHorizontal, Maximize2, Minimize2, ExternalLink, Calendar, PlusCircle } from 'lucide-react';
 
@@ -16,8 +16,12 @@ interface TimelineBlock {
   id: string;
   taskId: string;
   title: string;
+  subtaskId?: string;
   subtaskTitle?: string;
+  subtaskComment?: string;
   color: string;
+  parentColor: string;
+  isSubtask: boolean;
   startMs: number;
   endMs: number;
   clampedStart: number;
@@ -42,6 +46,13 @@ export const BottomTimeline: React.FC = () => {
   const [windowHours, setWindowHours] = useState(3);
   const [isExpanded, setIsExpanded] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState<TimelineBlock | null>(null);
+  const [touchScrub, setTouchScrub] = useState<{
+    pct: number;
+    timeMs: number;
+    blockTitle?: string;
+    isGap: boolean;
+  } | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
 
   const [offlineLog, setOfflineLog] = useState<OfflineLogState>({
     isOpen: false,
@@ -66,13 +77,14 @@ export const BottomTimeline: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Map tasks by ID for title and color
+  // Map tasks by ID for title, color, and subtasks
   const taskMap = useMemo(() => {
-    const map = new Map<string, { title: string; color: string }>();
+    const map = new Map<string, { title: string; color: string; subtasks?: typeof rawTasks[0]['subtasks'] }>();
     for (const t of rawTasks) {
       map.set(t.id, {
         title: t.title,
         color: t.color || DEFAULT_TASK_COLOR,
+        subtasks: t.subtasks,
       });
     }
     return map;
@@ -112,13 +124,26 @@ export const BottomTimeline: React.FC = () => {
       const widthPct = ((clampedEnd - clampedStart) / totalWindowMs) * 100;
 
       const taskInfo = taskMap.get(s.taskId);
+      const parentColor = taskInfo?.color || DEFAULT_TASK_COLOR;
+      const isSubtask = Boolean(s.subtaskId || s.subtaskTitle);
+      const blockColor = isSubtask
+        ? getSubtaskShade(parentColor, s.subtaskId || s.subtaskTitle)
+        : parentColor;
+
+      const matchedSubtask = taskInfo?.subtasks?.find(
+        (st) => (s.subtaskId && st.id === s.subtaskId) || (s.subtaskTitle && st.title === s.subtaskTitle)
+      );
 
       list.push({
         id: s.id,
         taskId: s.taskId,
         title: taskInfo?.title || 'Completed task',
+        subtaskId: s.subtaskId,
         subtaskTitle: s.subtaskTitle,
-        color: taskInfo?.color || DEFAULT_TASK_COLOR,
+        subtaskComment: matchedSubtask?.comment,
+        color: blockColor,
+        parentColor,
+        isSubtask,
         startMs: sStart,
         endMs: sEnd,
         clampedStart,
@@ -133,8 +158,16 @@ export const BottomTimeline: React.FC = () => {
     for (const t of allActiveTimers) {
       const tStart = t.startTime;
       const taskInfo = taskMap.get(t.taskId);
-      const taskColor = t.task.color || taskInfo?.color || DEFAULT_TASK_COLOR;
+      const parentColor = t.task.color || taskInfo?.color || DEFAULT_TASK_COLOR;
       const taskTitle = t.task.title || taskInfo?.title || 'Active task';
+      const isSubtask = Boolean(t.subtaskId || t.subtaskTitle);
+      const blockColor = isSubtask
+        ? getSubtaskShade(parentColor, t.subtaskId || t.subtaskTitle)
+        : parentColor;
+
+      const matchedSubtask = taskInfo?.subtasks?.find(
+        (st) => (t.subtaskId && st.id === t.subtaskId) || (t.subtaskTitle && st.title === t.subtaskTitle)
+      );
 
       if (t.isRunning) {
         const clampedStart = Math.max(tStart, windowStart);
@@ -147,8 +180,12 @@ export const BottomTimeline: React.FC = () => {
             id: `live-${t.taskId}`,
             taskId: t.taskId,
             title: taskTitle,
+            subtaskId: t.subtaskId,
             subtaskTitle: t.subtaskTitle,
-            color: taskColor,
+            subtaskComment: matchedSubtask?.comment,
+            color: blockColor,
+            parentColor,
+            isSubtask,
             startMs: tStart,
             endMs: currentTime,
             clampedStart,
@@ -171,8 +208,12 @@ export const BottomTimeline: React.FC = () => {
             id: `live-active-${t.taskId}`,
             taskId: t.taskId,
             title: taskTitle,
+            subtaskId: t.subtaskId,
             subtaskTitle: t.subtaskTitle,
-            color: taskColor,
+            subtaskComment: matchedSubtask?.comment,
+            color: blockColor,
+            parentColor,
+            isSubtask,
             startMs: tStart,
             endMs: activeEnd,
             clampedStart,
@@ -192,8 +233,12 @@ export const BottomTimeline: React.FC = () => {
             id: `live-paused-${t.taskId}`,
             taskId: t.taskId,
             title: taskTitle,
+            subtaskId: t.subtaskId,
             subtaskTitle: t.subtaskTitle,
-            color: taskColor,
+            subtaskComment: matchedSubtask?.comment,
+            color: blockColor,
+            parentColor,
+            isSubtask,
             startMs: t.pauseStart,
             endMs: currentTime,
             clampedStart: clampedPauseStart,
@@ -226,6 +271,156 @@ export const BottomTimeline: React.FC = () => {
 
     return { blocks: assigned, hasMultiLane };
   }, [rawSessions, allActiveTimers, currentTime, windowStart, totalWindowMs, taskMap]);
+
+  // Group blocks by parent task for structured timeline breakdown
+  const groupedTasks = useMemo(() => {
+    const map = new Map<string, {
+      taskId: string;
+      taskTitle: string;
+      taskColor: string;
+      totalDurationMs: number;
+      blocks: TimelineBlock[];
+    }>();
+
+    for (const b of [...blocks].reverse()) {
+      if (!map.has(b.taskId)) {
+        map.set(b.taskId, {
+          taskId: b.taskId,
+          taskTitle: b.title,
+          taskColor: b.parentColor || b.color,
+          totalDurationMs: 0,
+          blocks: [],
+        });
+      }
+      const g = map.get(b.taskId)!;
+      g.totalDurationMs += (b.endMs - b.startMs);
+      g.blocks.push(b);
+    }
+
+    return Array.from(map.values());
+  }, [blocks]);
+
+  // Group contiguous blocks of the same task on each lane into unified capsules
+  const clusters = useMemo(() => {
+    if (blocks.length === 0) return [];
+
+    const result: {
+      id: string;
+      taskId: string;
+      taskTitle: string;
+      parentColor: string;
+      lane: number;
+      leftPct: number;
+      widthPct: number;
+      blocks: (TimelineBlock & { relativeWidthPct: number })[];
+    }[] = [];
+
+    const lanes = [0, 1];
+    for (const laneNum of lanes) {
+      const laneBlocks = blocks.filter((b) => b.lane === laneNum);
+      if (laneBlocks.length === 0) continue;
+
+      const sorted = [...laneBlocks].sort((a, b) => a.clampedStart - b.clampedStart);
+
+      let currentCluster: {
+        id: string;
+        taskId: string;
+        taskTitle: string;
+        parentColor: string;
+        lane: number;
+        startMs: number;
+        endMs: number;
+        clampedStart: number;
+        clampedEnd: number;
+        blocks: TimelineBlock[];
+      } | null = null;
+
+      for (const b of sorted) {
+        const gapMs = currentCluster ? b.clampedStart - currentCluster.clampedEnd : Infinity;
+        // Group if same task and contiguous or switching subtasks within 3 minutes
+        const isContiguous =
+          currentCluster !== null &&
+          currentCluster.taskId === b.taskId &&
+          gapMs <= 3 * 60 * 1000 &&
+          gapMs >= -1000;
+
+        if (isContiguous && currentCluster) {
+          currentCluster.endMs = Math.max(currentCluster.endMs, b.endMs);
+          currentCluster.clampedEnd = Math.max(currentCluster.clampedEnd, b.clampedEnd);
+          currentCluster.blocks.push(b);
+        } else {
+          if (currentCluster) {
+            const cLeft = ((currentCluster.clampedStart - windowStart) / totalWindowMs) * 100;
+            const cRight = ((currentCluster.clampedEnd - windowStart) / totalWindowMs) * 100;
+            const cWidth = Math.max(cRight - cLeft, 0.4);
+            const rawSum = currentCluster.blocks.reduce(
+              (acc, blk) => acc + Math.max(blk.clampedEnd - blk.clampedStart, 1),
+              0
+            );
+
+            result.push({
+              id: currentCluster.id,
+              taskId: currentCluster.taskId,
+              taskTitle: currentCluster.taskTitle,
+              parentColor: currentCluster.parentColor,
+              lane: currentCluster.lane,
+              leftPct: cLeft,
+              widthPct: cWidth,
+              blocks: currentCluster.blocks.map((blk) => {
+                const dur = Math.max(blk.clampedEnd - blk.clampedStart, 1);
+                return {
+                  ...blk,
+                  relativeWidthPct: (dur / rawSum) * 100,
+                };
+              }),
+            });
+          }
+
+          currentCluster = {
+            id: `cluster-${b.id}`,
+            taskId: b.taskId,
+            taskTitle: b.title,
+            parentColor: b.parentColor || b.color,
+            lane: b.lane,
+            startMs: b.startMs,
+            endMs: b.endMs,
+            clampedStart: b.clampedStart,
+            clampedEnd: b.clampedEnd,
+            blocks: [b],
+          };
+        }
+      }
+
+      if (currentCluster) {
+        const cLeft = ((currentCluster.clampedStart - windowStart) / totalWindowMs) * 100;
+        const cRight = ((currentCluster.clampedEnd - windowStart) / totalWindowMs) * 100;
+        const cWidth = Math.max(cRight - cLeft, 0.4);
+        const rawSum = currentCluster.blocks.reduce(
+          (acc, blk) => acc + Math.max(blk.clampedEnd - blk.clampedStart, 1),
+          0
+        );
+
+        result.push({
+          id: currentCluster.id,
+          taskId: currentCluster.taskId,
+          taskTitle: currentCluster.taskTitle,
+          parentColor: currentCluster.parentColor,
+          lane: currentCluster.lane,
+          leftPct: cLeft,
+          widthPct: cWidth,
+          blocks: currentCluster.blocks.map((blk) => {
+            const dur = Math.max(blk.clampedEnd - blk.clampedStart, 1);
+            return {
+              ...blk,
+              relativeWidthPct: (dur / rawSum) * 100,
+            };
+          }),
+        });
+      }
+    }
+
+    return result;
+  }, [blocks, windowStart, totalWindowMs]);
 
   // Click-to-Scroll from Timeline to Task Card
   const handleScrollToTask = (taskId: string) => {
@@ -280,6 +475,91 @@ export const BottomTimeline: React.FC = () => {
     });
   };
 
+  const updateTouchScrub = (touchX: number) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const scrubX = touchX - rect.left;
+    const scrubPct = Math.max(0, Math.min(90, (scrubX / rect.width) * 100));
+    const scrubTime = windowStart + (scrubPct / 100) * totalWindowMs;
+
+    const block = blocks.find(
+      (b) => scrubTime >= b.clampedStart && scrubTime <= b.clampedEnd
+    );
+
+    if (block) {
+      setHoveredBlock(block);
+      setTouchScrub({
+        pct: scrubPct,
+        timeMs: scrubTime,
+        blockTitle: block.subtaskTitle ? `${block.title} › ${block.subtaskTitle}` : block.title,
+        isGap: false,
+      });
+    } else {
+      setHoveredBlock(null);
+      setTouchScrub({
+        pct: scrubPct,
+        timeMs: scrubTime,
+        isGap: true,
+      });
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+      updateTouchScrub(touch.clientX);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1) {
+      updateTouchScrub(e.touches[0].clientX);
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchScrub) {
+      const touch = e.changedTouches[0];
+      const start = touchStartPos.current;
+      const dist = start
+        ? Math.hypot(touch.clientX - start.x, touch.clientY - start.y)
+        : 0;
+
+      if (dist < 15) {
+        if (hoveredBlock) {
+          handleScrollToTask(hoveredBlock.taskId);
+        } else if (touchScrub.isGap) {
+          let gapStart = windowStart;
+          let gapEnd = currentTime;
+          for (const b of blocks) {
+            if (b.endMs <= touchScrub.timeMs && b.endMs > gapStart) {
+              gapStart = b.endMs;
+            }
+            if (b.startMs >= touchScrub.timeMs && b.startMs < gapEnd) {
+              gapEnd = b.startMs;
+            }
+          }
+          const gapMinutes = Math.max(5, Math.round((gapEnd - gapStart) / 60000));
+          const defaultTaskId = rawTasks.length > 0 ? rawTasks[0].id : '';
+          setOfflineLog({
+            isOpen: true,
+            gapStart,
+            gapEnd,
+            minutes: gapMinutes,
+            taskId: defaultTaskId,
+          });
+        }
+      }
+
+      setTimeout(() => {
+        setTouchScrub(null);
+        setHoveredBlock(null);
+      }, 1500);
+    }
+    touchStartPos.current = null;
+  };
+
   const handleSaveOfflineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!offlineLog.taskId || offlineLog.minutes <= 0) return;
@@ -306,7 +586,7 @@ export const BottomTimeline: React.FC = () => {
 
   return (
     <>
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-4xl z-30 select-none transition-all">
+      <div className="fixed bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-4xl z-30 select-none transition-all">
         {/* Top Control Bar: Integrated Zoom Slider + Detailed View Toggle */}
         <div className="flex items-center justify-between mb-1.5 px-1">
           <div className="flex items-center gap-2">
@@ -334,24 +614,43 @@ export const BottomTimeline: React.FC = () => {
             </button>
           </div>
 
-          {/* Integrated Zoom Slider */}
-          <div className="flex items-center gap-2 bg-card/90 backdrop-blur-md border border-border px-3 py-1 rounded-full shadow-xs text-xs">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-[11px] font-semibold text-foreground whitespace-nowrap min-w-[45px]">
-              {windowHours < 1
-                ? `${Math.round(windowHours * 60)}m`
-                : `${windowHours}h`}
-            </span>
-            <input
-              type="range"
-              min="0.5"
-              max="12"
-              step="0.5"
-              value={windowHours}
-              onChange={(e) => setWindowHours(parseFloat(e.target.value))}
-              className="w-20 sm:w-28 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-              title="Adjust timeline time window"
-            />
+          {/* Integrated Zoom Controls (Presets + Slider) */}
+          <div className="flex items-center gap-1.5 bg-card/90 backdrop-blur-md border border-border px-2 sm:px-3 py-1 rounded-full shadow-xs text-xs">
+            {/* Quick Presets */}
+            <div className="flex items-center gap-1">
+              {[1, 3, 6, 12].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  data-testid={`timeline-preset-${preset}h`}
+                  onClick={() => setWindowHours(preset)}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors cursor-pointer ${
+                    windowHours === preset
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground'
+                  }`}
+                  title={`${preset} hour window`}
+                >
+                  {preset}h
+                </button>
+              ))}
+            </div>
+
+            <div className="h-3 w-px bg-border/60 mx-0.5 hidden sm:block" />
+
+            <div className="hidden sm:flex items-center gap-1.5">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                type="range"
+                min="0.5"
+                max="12"
+                step="0.5"
+                value={windowHours}
+                onChange={(e) => setWindowHours(parseFloat(e.target.value))}
+                className="w-16 md:w-24 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                title="Adjust timeline time window"
+              />
+            </div>
           </div>
         </div>
 
@@ -434,16 +733,30 @@ export const BottomTimeline: React.FC = () => {
                 >
                   <div className="flex items-center gap-1.5 font-medium">
                     <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: hoveredBlock.color }}
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: hoveredBlock.parentColor }}
+                      title="Parent task color"
                     />
                     <span className="font-semibold">{hoveredBlock.title}</span>
-                    {hoveredBlock.subtaskTitle && (
-                      <span className="text-zinc-400">
-                        › {hoveredBlock.subtaskTitle}
-                      </span>
+                    {hoveredBlock.isSubtask && (
+                      <>
+                        <span className="text-zinc-500">›</span>
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: hoveredBlock.color }}
+                          title="Subtask shade"
+                        />
+                        <span className="text-zinc-300 font-semibold">
+                          {hoveredBlock.subtaskTitle}
+                        </span>
+                      </>
                     )}
                   </div>
+                  {hoveredBlock.subtaskComment && (
+                    <p className="text-[10px] text-zinc-400 italic max-w-[260px] truncate mt-0.5">
+                      Note: {hoveredBlock.subtaskComment}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-zinc-400">
                     <span>
                       {format(new Date(hoveredBlock.startMs), 'HH:mm')} –{' '}
@@ -482,61 +795,126 @@ export const BottomTimeline: React.FC = () => {
           <div
             ref={trackRef}
             onClick={handleTrackClick}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            style={{ touchAction: 'pan-y' }}
             className={`relative w-full rounded-xl bg-muted/80 border border-border/80 overflow-hidden flex items-center cursor-crosshair ${
               isExpanded ? 'h-16' : 'h-full'
             }`}
-            title="Click on empty space to log offline time"
+            title="Click on empty space to log offline time or scrub on touch"
           >
+            {/* Mobile Touch Scrubber Line & Indicator */}
+            {touchScrub && (
+              <div
+                style={{ left: `${touchScrub.pct}%` }}
+                className="absolute top-0 bottom-0 w-0.5 bg-primary z-30 pointer-events-none transition-none shadow-[0_0_8px_rgba(37,99,235,0.8)]"
+              >
+                <div className="absolute -top-6 -translate-x-1/2 bg-zinc-900 text-zinc-100 text-[10px] font-mono font-medium px-2 py-0.5 rounded-md shadow-lg whitespace-nowrap border border-zinc-700/80">
+                  {format(new Date(touchScrub.timeMs), 'HH:mm')}
+                  {touchScrub.blockTitle ? ` • ${touchScrub.blockTitle}` : ' • Idle'}
+                </div>
+              </div>
+            )}
+
             {/* Full-width Track Content */}
             <div className="absolute inset-0">
-              {blocks.map((b) => {
+              {clusters.map((cluster) => {
                 const laneHeight = hasMultiLane ? '48%' : '100%';
                 const laneTop = hasMultiLane
-                  ? b.lane === 1
+                  ? cluster.lane === 1
                     ? '50%'
                     : '2%'
                   : '0%';
 
-                const isPausedStyle = b.status === 'paused';
+                const isAllPaused = cluster.blocks.every((b) => b.status === 'paused');
 
                 return (
                   <div
-                    key={b.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleScrollToTask(b.taskId);
-                    }}
-                    onMouseEnter={() => setHoveredBlock(b)}
-                    onMouseLeave={() => setHoveredBlock(null)}
+                    key={cluster.id}
                     style={{
-                      left: `${b.leftPct}%`,
-                      width: `${b.widthPct}%`,
+                      left: `${cluster.leftPct}%`,
+                      width: `${cluster.widthPct}%`,
                       top: laneTop,
                       height: laneHeight,
-                      backgroundColor: isPausedStyle ? undefined : b.color,
-                      borderColor: isPausedStyle ? b.color : undefined,
                     }}
-                    className={`absolute rounded-md cursor-pointer transition-all ${
-                      isPausedStyle
-                        ? 'border-2 border-dashed bg-amber-500/20 backdrop-blur-xs'
-                        : b.status === 'running'
-                        ? 'opacity-95 shadow-sm brightness-105'
-                        : 'opacity-85 hover:opacity-100 hover:scale-[1.01]'
+                    className={`absolute rounded-lg overflow-hidden flex border transition-all ${
+                      isAllPaused
+                        ? 'border-dashed border-amber-500/60'
+                        : 'border-border/70 shadow-xs'
                     }`}
                   >
-                    {b.widthPct > 6 && (
-                      <div className="h-full px-2 flex items-center overflow-hidden">
-                        <span
-                          className={`text-[10px] font-bold truncate drop-shadow-xs ${
+                    {/* Unified Top Accent Bar across the entire task capsule */}
+                    <div
+                      className="absolute top-0 left-0 right-0 h-[3px] z-20 pointer-events-none"
+                      style={{ backgroundColor: cluster.parentColor }}
+                    />
+
+                    {/* Segments (Subtasks / Sessions) */}
+                    {cluster.blocks.map((b, idx) => {
+                      const isPausedStyle = b.status === 'paused';
+                      const isRunningStyle = b.status === 'running';
+                      const hasDivider = idx < cluster.blocks.length - 1;
+                      const approxPixelWidth = cluster.widthPct * (b.relativeWidthPct / 100);
+
+                      return (
+                        <div
+                          key={b.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleScrollToTask(b.taskId);
+                          }}
+                          onMouseEnter={() => setHoveredBlock(b)}
+                          onMouseLeave={() => setHoveredBlock(null)}
+                          style={{
+                            width: `${b.relativeWidthPct}%`,
+                            backgroundColor: isPausedStyle ? undefined : b.color,
+                          }}
+                          className={`h-full relative flex items-center cursor-pointer transition-all ${
+                            hasDivider ? 'border-r border-black/25 dark:border-white/20' : ''
+                          } ${
                             isPausedStyle
-                              ? 'text-amber-600 dark:text-amber-300'
-                              : 'text-white'
+                              ? 'border-2 border-dashed border-amber-500 bg-amber-500/20 backdrop-blur-xs'
+                              : isRunningStyle
+                              ? 'opacity-95 brightness-105 shadow-xs'
+                              : 'opacity-90 hover:opacity-100 hover:brightness-110'
                           }`}
                         >
-                          {isPausedStyle ? 'Paused' : b.subtaskTitle || b.title}
-                        </span>
-                      </div>
-                    )}
+                          {approxPixelWidth > 6 && (
+                            <div className="h-full px-1.5 flex items-center overflow-hidden">
+                              <span
+                                className={`text-[10px] font-bold truncate drop-shadow-xs ${
+                                  isPausedStyle
+                                    ? 'text-amber-600 dark:text-amber-300'
+                                    : 'text-white'
+                                }`}
+                              >
+                                {isPausedStyle ? 'Paused' : b.isSubtask ? `› ${b.subtaskTitle}` : b.title}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Unified Task Title Overlay when individual segments are too small to show text */}
+                    {cluster.widthPct >= 8 &&
+                      cluster.blocks.every(
+                        (b) => (cluster.widthPct * b.relativeWidthPct) / 100 <= 6
+                      ) && (
+                        <div
+                          className="absolute inset-0 px-2 flex items-center pointer-events-none z-10 overflow-hidden"
+                        >
+                          <span className="text-[10px] font-bold text-white drop-shadow-md truncate">
+                            {cluster.taskTitle}
+                            {cluster.blocks.length > 1 && (
+                              <span className="ml-1 opacity-80 text-[9px] font-normal">
+                                ({cluster.blocks.length} parts)
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                   </div>
                 );
               })}
@@ -616,55 +994,92 @@ export const BottomTimeline: React.FC = () => {
                 </span>
               </div>
 
-              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                {blocks.length === 0 ? (
+              <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+                {groupedTasks.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic py-3 text-center">
                     No activity recorded in this time window
                   </p>
                 ) : (
-                  [...blocks].reverse().map((b) => (
+                  groupedTasks.map((group) => (
                     <div
-                      key={b.id}
-                      onClick={() => handleScrollToTask(b.taskId)}
-                      className="flex items-center justify-between p-2 rounded-lg border border-border/80 bg-muted/30 hover:bg-muted/80 text-xs transition-colors cursor-pointer"
+                      key={group.taskId}
+                      className="rounded-lg border border-border/80 bg-muted/20 overflow-hidden"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: b.color }}
-                        />
-                        <span className="font-semibold text-foreground truncate">
-                          {b.title}
-                        </span>
-                        {b.subtaskTitle && (
-                          <span className="text-xs text-muted-foreground truncate">
-                            › {b.subtaskTitle}
+                      {/* Main Task Group Header */}
+                      <div
+                        onClick={() => handleScrollToTask(group.taskId)}
+                        className="flex items-center justify-between p-2 bg-muted/60 hover:bg-muted/80 transition-colors cursor-pointer border-b border-border/40"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: group.taskColor }}
+                          />
+                          <span className="font-semibold text-xs text-foreground truncate">
+                            {group.taskTitle}
                           </span>
-                        )}
-                        <span
-                          className={`text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
-                            b.status === 'running'
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                              : b.status === 'paused'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          {b.status}
-                        </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({group.blocks.length} {group.blocks.length === 1 ? 'session' : 'sessions'})
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono font-semibold text-foreground">
+                          {formatDuration(group.totalDurationMs)}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-3 text-muted-foreground text-[11px] shrink-0 font-mono">
-                        <span>
-                          {format(new Date(b.startMs), 'HH:mm')} –{' '}
-                          {b.status === 'running' || b.status === 'paused'
-                            ? 'Now'
-                            : format(new Date(b.endMs), 'HH:mm')}
-                        </span>
-                        <span className="font-semibold text-foreground">
-                          {formatDuration(b.endMs - b.startMs)}
-                        </span>
-                        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+                      {/* Grouped Sessions: Subtasks & General */}
+                      <div className="divide-y divide-border/30">
+                        {group.blocks.map((b) => (
+                          <div
+                            key={b.id}
+                            onClick={() => handleScrollToTask(b.taskId)}
+                            className="flex items-center justify-between p-2 pl-4 sm:pl-5 hover:bg-muted/30 text-xs transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: b.color }}
+                              />
+                              {b.isSubtask ? (
+                                <span className="font-medium text-xs text-foreground truncate flex items-center gap-1">
+                                  <span className="text-muted-foreground/60">›</span>
+                                  <span>{b.subtaskTitle}</span>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground truncate">General session</span>
+                              )}
+                              {b.subtaskComment && (
+                                <span className="text-[10px] text-muted-foreground/80 italic truncate max-w-[140px] hidden sm:inline">
+                                  ({b.subtaskComment})
+                                </span>
+                              )}
+                              <span
+                                className={`text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                                  b.status === 'running'
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                    : b.status === 'paused'
+                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                    : 'bg-muted text-muted-foreground'
+                                }`}
+                              >
+                                {b.status}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 text-muted-foreground text-[11px] shrink-0 font-mono">
+                              <span>
+                                {format(new Date(b.startMs), 'HH:mm')} –{' '}
+                                {b.status === 'running' || b.status === 'paused'
+                                  ? 'Now'
+                                  : format(new Date(b.endMs), 'HH:mm')}
+                              </span>
+                              <span className="font-semibold text-foreground">
+                                {formatDuration(b.endMs - b.startMs)}
+                              </span>
+                              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))

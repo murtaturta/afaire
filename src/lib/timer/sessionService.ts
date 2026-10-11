@@ -1,8 +1,9 @@
-import { createSession, updateSession, getSessionsByTask } from '@/lib/db/sessions';
+import { createSession, updateSession, getSessionsByTask, deleteSession } from '@/lib/db/sessions';
 import { updateTask, getTask } from '@/lib/db/tasks';
 import { addCompletionRecord, getHistoryByTask, updateCompletionRecord } from '@/lib/db/history';
 import { useTimerStore } from '@/stores/timerStore';
 import type { TimerSession, CompletionRecord, Task, Subtask } from '@/lib/db/types';
+import { recalibratePendingTasks } from '@/lib/calibration/engine';
 
 function getTimeOfDay(date: Date): 'morning' | 'afternoon' | 'evening' {
   const hour = date.getHours();
@@ -176,6 +177,11 @@ export async function completeTask(taskId: string, nominalMinutes: number) {
     record = await addCompletionRecord(recordData);
   }
 
+  // Trigger learning loop for pending tasks if this wasn't an unreviewed outlier
+  if (!isOutlier) {
+    await recalibratePendingTasks();
+  }
+
   return {
     session,
     record,
@@ -225,6 +231,8 @@ export async function applyOutlierChoice(
       splits,
     });
   }
+
+  await recalibratePendingTasks();
 }
 
 export async function toggleSubtaskDone(taskId: string, subtaskId: string, done: boolean) {
@@ -253,4 +261,89 @@ export async function toggleSubtaskDone(taskId: string, subtaskId: string, done:
       store.startTimer(task, undefined, undefined, totalAccumulatedMs);
     }
   }
+}
+
+export async function syncTaskHistoryRecords(taskId: string) {
+  const allSessions = await getSessionsByTask(taskId);
+  const task = await getTask(taskId);
+  if (!task) return;
+  const subtasks = task.subtasks || [];
+
+  let totalActiveMs = 0;
+  for (const s of allSessions) {
+    if (!s.excludeFromHistory) {
+      totalActiveMs += (s.adjustedDurationMs ?? s.activeDurationMs);
+    }
+  }
+  const actualMinutes = totalActiveMs / 60000;
+  const splits = computeTaskSplit(allSessions, subtasks);
+
+  const records = await getHistoryByTask(taskId);
+  if (records.length > 0) {
+    for (const record of records) {
+      await updateCompletionRecord(record.id, {
+        actualMinutes,
+        ratio: record.nominalMinutes > 0 ? actualMinutes / record.nominalMinutes : 1,
+        splits,
+      });
+    }
+  }
+}
+
+export async function editSessionTimecodes(
+  sessionId: string,
+  taskId: string,
+  startedAt: string,
+  endedAt: string,
+  subtaskId?: string,
+  subtaskTitle?: string
+) {
+  const startMs = new Date(startedAt).getTime();
+  const endMs = new Date(endedAt).getTime();
+  const durationMs = Math.max(0, endMs - startMs);
+
+  await updateSession(sessionId, {
+    startedAt,
+    endedAt,
+    rawDurationMs: durationMs,
+    activeDurationMs: durationMs,
+    adjustedDurationMs: undefined,
+    subtaskId: subtaskId || undefined,
+    subtaskTitle: subtaskTitle || undefined,
+  });
+
+  await syncTaskHistoryRecords(taskId);
+}
+
+export async function deleteSessionRecord(sessionId: string, taskId: string) {
+  await deleteSession(sessionId);
+  await syncTaskHistoryRecords(taskId);
+}
+
+export async function addManualSession(
+  taskId: string,
+  startedAt: string,
+  endedAt: string,
+  subtaskId?: string,
+  subtaskTitle?: string
+): Promise<TimerSession> {
+  const startMs = new Date(startedAt).getTime();
+  const endMs = new Date(endedAt).getTime();
+  const durationMs = Math.max(0, endMs - startMs);
+
+  const session = await createSession({
+    taskId,
+    subtaskId: subtaskId || undefined,
+    subtaskTitle: subtaskTitle || undefined,
+    startedAt,
+    endedAt,
+    rawDurationMs: durationMs,
+    activeDurationMs: durationMs,
+    pausedDurations: [],
+    isOutlier: false,
+    excludeFromHistory: false,
+  });
+
+  await syncTaskHistoryRecords(taskId);
+  return session;
 }
