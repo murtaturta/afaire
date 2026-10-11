@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAllTasks } from '@/hooks/useData';
 import { generateIcsCalendar, downloadIcsFile } from '@/lib/calendar/ics';
+import { downloadBackupJson, importBackupData } from '@/lib/db/backup';
 import {
   Calendar,
   Download,
@@ -13,7 +14,10 @@ import {
   ShieldCheck,
   Clock,
   Sparkles,
-  Key
+  Key,
+  Database,
+  Upload,
+  FileJson
 } from 'lucide-react';
 
 const DEFAULT_GIST_ID = '4a5ce16179357ead77fe22325d59b20e';
@@ -49,6 +53,35 @@ export default function SettingsPage() {
 
   const handleDownloadIcs = () => {
     downloadIcsFile(tasks, 'afaire-tasks.ics');
+  };
+
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleExportJson = async () => {
+    try {
+      await downloadBackupJson();
+      setBackupStatus('✓ Backup downloaded successfully!');
+      setTimeout(() => setBackupStatus(null), 3000);
+    } catch (err: any) {
+      setBackupStatus(`Export failed: ${err.message}`);
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const result = await importBackupData(text);
+      setBackupStatus(`✓ Restored ${result.tasksCount} tasks and ${result.sessionsCount} sessions!`);
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch (err: any) {
+      setBackupStatus(`Import failed: ${err.message}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSaveToken = (val: string) => {
@@ -257,6 +290,83 @@ export default function SettingsPage() {
             <Download className="w-3.5 h-3.5" />
             <span>Download .ics File</span>
           </button>
+        </div>
+      </div>
+
+      {/* Backup & Cross-Device Transfer Card */}
+      <div className="p-6 rounded-2xl border border-border bg-card text-card-foreground shadow-xs space-y-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Data Backup & Device Transfer (JSON)</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Move your tasks, checklists, and history between different computers or save an offline backup.
+          </p>
+        </div>
+
+        {backupStatus && (
+          <div className={`p-3 rounded-lg text-xs font-medium ${
+            backupStatus.startsWith('✓')
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+              : 'bg-destructive/10 text-destructive border border-destructive/20'
+          }`}>
+            {backupStatus}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          {/* Export Button */}
+          <div className="p-4 rounded-xl border border-border/80 bg-muted/20 flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <FileJson className="w-4 h-4 text-primary" />
+                <span>Export Backup</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Save all tasks, subtasks, and completion logs to a <code>.json</code> file.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportJson}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-xs hover:bg-primary/90 transition-all cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export All Data (JSON)</span>
+            </button>
+          </div>
+
+          {/* Import Button */}
+          <div className="p-4 rounded-xl border border-border/80 bg-muted/20 flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Upload className="w-4 h-4 text-primary" />
+                <span>Import Backup</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Restore a backup file from another PC. Tasks and sessions will be safely imported into your browser.
+              </p>
+            </div>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                className="hidden"
+                id="import-backup-input"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 font-medium text-xs transition-colors cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Select & Restore File</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
